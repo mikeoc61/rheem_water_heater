@@ -1,5 +1,5 @@
 #!/bin/bash
-# econet_query.sh — Rheem EcoNet Heat Pump Water Heater snapshot via Home Assistant
+# eco-status.sh — Rheem EcoNet Heat Pump Water Heater snapshot via Home Assistant
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
