@@ -31,37 +31,32 @@ fi
 start_iso=$(date -d "@$start_epoch" +%Y-%m-%dT%H:%M:%S%:z)
 end_iso=$(date -d "@$now_epoch" +%Y-%m-%dT%H:%M:%S%:z)
 
+running_entity=binary_sensor.heat_pump_water_heater_running
+mode_entity=water_heater.heat_pump_water_heater
+component_entity=sensor.heat_pump_water_heater_running_state
+
+# One history request covers all three entities; the reply holds one list per
+# entity. With minimal_response only each list's first row has an entity_id.
 if ! response=$(curl -fsS --max-time 30 -G -H "Authorization: Bearer $HA_TOKEN" \
     --data-urlencode "end_time=$end_iso" \
-    --data-urlencode 'filter_entity_id=binary_sensor.heat_pump_water_heater_running' \
+    --data-urlencode "filter_entity_id=$running_entity,$mode_entity,$component_entity" \
     --data-urlencode 'minimal_response' --data-urlencode 'no_attributes' \
     "$ha_url/api/history/period/$start_iso"); then
     printf 'Could not retrieve water heater history from Home Assistant.\n' >&2
     exit 1
 fi
-if ! events=$(jq -er 'if type == "array" and all(.[]; type == "array") then [ .[][] | select(.state == "on" or .state == "off") | select(.last_changed != null) | [.last_changed, .state] | @tsv ] | .[] else error("unexpected history response") end' <<< "$response" 2>/dev/null); then
-    # jq returns 4 for a valid empty result.
-    if ! jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null 2>&1 <<< "$response"; then
-        printf 'Home Assistant returned an invalid history response.\n' >&2
-        exit 1
-    fi
+if ! jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null 2>&1 <<< "$response"; then
+    printf 'Home Assistant returned an invalid history response.\n' >&2
+    exit 1
 fi
 
-# Fetch recorded modes separately so missing mode history does not hide runs.
-mode_events=$(curl -fsS --max-time 15 -G -H "Authorization: Bearer $HA_TOKEN" \
-    --data-urlencode "end_time=$end_iso" \
-    --data-urlencode 'filter_entity_id=water_heater.heat_pump_water_heater' \
-    --data-urlencode 'no_attributes' \
-    "$ha_url/api/history/period/$start_iso" | \
-    jq -r '.[][] | select(.last_changed != null) | [.last_changed, "mode", .state] | @tsv') || mode_events=''
-
+# Rows of the list belonging to entity $id.
+rows='.[] | select(.[0].entity_id == $id) | .[] | select(.last_changed != null)'
+events=$(jq -r --arg id "$running_entity" "$rows"' | select(.state == "on" or .state == "off") | [.last_changed, .state] | @tsv' <<< "$response")
+# Mode and component history are optional: if absent, runs still show.
+mode_events=$(jq -r --arg id "$mode_entity" "$rows"' | [.last_changed, "mode", .state] | @tsv' <<< "$response")
 # Component history supports estimates based on what actually ran.
-component_events=$(curl -fsS --max-time 15 -G -H "Authorization: Bearer $HA_TOKEN" \
-    --data-urlencode "end_time=$end_iso" \
-    --data-urlencode 'filter_entity_id=sensor.heat_pump_water_heater_running_state' \
-    --data-urlencode 'no_attributes' \
-    "$ha_url/api/history/period/$start_iso" | \
-    jq -r '.[][] | select(.last_changed != null) | [.last_changed, "component", (.state // "")] | @tsv') || component_events=''
+component_events=$(jq -r --arg id "$component_entity" "$rows"' | [.last_changed, "component", (.state // "")] | @tsv' <<< "$response")
 
 # Compressor power varies with conditions; override after measuring your unit.
 compressor_watts=${COMPRESSOR_WATTS:-500}
@@ -73,7 +68,7 @@ fi
 
 # The water heater entity's state is its current operating mode.
 mode=$(curl -fsS --max-time 15 -H "Authorization: Bearer $HA_TOKEN" \
-    "$ha_url/api/states/water_heater.heat_pump_water_heater" | \
+    "$ha_url/api/states/$mode_entity" | \
     jq -er '.state | select(type == "string" and length > 0)' 2>/dev/null) || mode='unavailable'
 
 bold='' dim='' green='' cyan='' yellow='' magenta='' reset=''
