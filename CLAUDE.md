@@ -4,9 +4,10 @@ Bash scripts that report on a Rheem EcoNet heat pump water heater through
 the Home Assistant REST API.
 
 - `eco-run-history.sh [start-date]` — on/off run history with estimated kWh.
-  Reads `HA_TOKEN` from `~/.env`.
-- `eco-status.sh` — one-shot status snapshot. Reads `.env` next to the
-  invoked path, falling back to `~/.env`; `HA_URL` and `ENV_FILE` override.
+- `eco-status.sh` — one-shot status snapshot.
+
+Both read `HA_TOKEN` from `.env` next to the invoked path, falling back to
+`~/.env`; `HA_URL` and `ENV_FILE` override.
 
 Developed on the Mac, run on pibot (Linux) where Home Assistant is at
 `http://localhost:8123`. The scripts use GNU `date` and `jq`, so they don't
@@ -26,8 +27,8 @@ No tests. Before deploying, run `bash -n` on each `*.sh`.
   symlink in `~/bin`.
 - Services, timers, cron: none use these scripts; nothing to restart.
 - Env: `~/.env` (symlink to `~/.openclaw/openclaw.env`) and `~/bin/.env`
-  both hold `HA_TOKEN`. Invoked via `~/bin`, `eco-status.sh` reads
-  `~/bin/.env`.
+  both hold `HA_TOKEN`. Invoked via `~/bin`, both scripts read
+  `~/bin/.env`; from the checkout they fall back to `~/.env`.
 - Pi checks (read-only Home Assistant GETs, safe to run every deploy), from
   the checkout; all must exit 0:
   - `./eco-status.sh`

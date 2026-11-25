@@ -3,7 +3,20 @@
 # Show water heater run history. Pass a start date understood by GNU date.
 set -o pipefail
 
-source ~/.env
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Prefer a .env next to the script; fall back to ~/.env.
+env_file=${ENV_FILE:-$script_dir/.env}
+[[ -f $env_file ]] || env_file=$HOME/.env
+if [[ ! -f $env_file ]]; then
+    printf 'No .env found in %s or %s\n' "$script_dir" "$HOME" >&2
+    exit 1
+fi
+source "$env_file"
+if [[ -z ${HA_TOKEN:-} ]]; then
+    printf 'HA_TOKEN not set in %s\n' "$env_file" >&2
+    exit 1
+fi
+ha_url=${HA_URL:-http://localhost:8123}
 
 start_input=${1:-"$(date +%Y-%m-01)"}
 if ! start_epoch=$(date -d "$start_input" +%s 2>/dev/null); then
@@ -18,11 +31,11 @@ fi
 start_iso=$(date -d "@$start_epoch" +%Y-%m-%dT%H:%M:%S%:z)
 end_iso=$(date -d "@$now_epoch" +%Y-%m-%dT%H:%M:%S%:z)
 
-if ! response=$(curl -fsS -G -H "Authorization: Bearer $HA_TOKEN" \
+if ! response=$(curl -fsS --max-time 30 -G -H "Authorization: Bearer $HA_TOKEN" \
     --data-urlencode "end_time=$end_iso" \
     --data-urlencode 'filter_entity_id=binary_sensor.heat_pump_water_heater_running' \
     --data-urlencode 'minimal_response' --data-urlencode 'no_attributes' \
-    "http://localhost:8123/api/history/period/$start_iso"); then
+    "$ha_url/api/history/period/$start_iso"); then
     printf 'Could not retrieve water heater history from Home Assistant.\n' >&2
     exit 1
 fi
@@ -39,7 +52,7 @@ mode_events=$(curl -fsS --max-time 15 -G -H "Authorization: Bearer $HA_TOKEN" \
     --data-urlencode "end_time=$end_iso" \
     --data-urlencode 'filter_entity_id=water_heater.heat_pump_water_heater' \
     --data-urlencode 'no_attributes' \
-    "http://localhost:8123/api/history/period/$start_iso" | \
+    "$ha_url/api/history/period/$start_iso" | \
     jq -r '.[][] | select(.last_changed != null) | [.last_changed, "mode", .state] | @tsv') || mode_events=''
 
 # Component history supports estimates based on what actually ran.
@@ -47,7 +60,7 @@ component_events=$(curl -fsS --max-time 15 -G -H "Authorization: Bearer $HA_TOKE
     --data-urlencode "end_time=$end_iso" \
     --data-urlencode 'filter_entity_id=sensor.heat_pump_water_heater_running_state' \
     --data-urlencode 'no_attributes' \
-    "http://localhost:8123/api/history/period/$start_iso" | \
+    "$ha_url/api/history/period/$start_iso" | \
     jq -r '.[][] | select(.last_changed != null) | [.last_changed, "component", (.state // "")] | @tsv') || component_events=''
 
 # Compressor power varies with conditions; override after measuring your unit.
@@ -59,8 +72,8 @@ if [[ ! $compressor_watts =~ ^[0-9]+([.][0-9]+)?$ || ! $element_watts =~ ^[0-9]+
 fi
 
 # The water heater entity's state is its current operating mode.
-mode=$(curl -fsS -H "Authorization: Bearer $HA_TOKEN" \
-    'http://localhost:8123/api/states/water_heater.heat_pump_water_heater' | \
+mode=$(curl -fsS --max-time 15 -H "Authorization: Bearer $HA_TOKEN" \
+    "$ha_url/api/states/water_heater.heat_pump_water_heater" | \
     jq -er '.state | select(type == "string" and length > 0)' 2>/dev/null) || mode='unavailable'
 
 bold='' dim='' green='' cyan='' yellow='' magenta='' reset=''
