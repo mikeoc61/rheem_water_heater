@@ -71,15 +71,16 @@ mode=$(curl -fsS --max-time 15 -H "Authorization: Bearer $HA_TOKEN" \
     "$ha_url/api/states/$mode_entity" | \
     jq -er '.state | select(type == "string" and length > 0)' 2>/dev/null) || mode='unavailable'
 
-bold='' dim='' green='' cyan='' yellow='' magenta='' reset=''
+bold='' dim='' green='' eco_green='' cyan='' yellow='' magenta='' reset=''
 if [[ -t 1 && -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
-    bold=$'\e[1m' dim=$'\e[2m' green=$'\e[1;32m'
+    bold=$'\e[1m' dim=$'\e[2m' green=$'\e[1;32m' eco_green=$'\e[32m'
     cyan=$'\e[36m' yellow=$'\e[33m' magenta=$'\e[35m' reset=$'\e[0m'
 fi
 
 printf '%sHeat pump water heater — run history%s\n' "$bold" "$reset"
 case $mode in high_demand) mode=high-demand;; electric) mode=element;; heat_pump) mode=heat-pump;; esac
 case $mode in
+    eco) mode_color=$eco_green;;
     heat-pump) mode_color=$cyan;;
     element) mode_color=$yellow;;
     high-demand) mode_color=$magenta;;
@@ -100,7 +101,7 @@ while IFS=$'\t' read -r ts state value; do
     printf '%s %s %s\n' "$epoch" "$state" "$value"
 done <<< "$mode_events"$'\n'"$component_events"$'\n'"$events" | sort -s -k1,1n | awk -v now="$now_epoch" \
     -v bold="$bold" -v dim="$dim" -v green="$green" -v reset="$reset" \
-    -v cyan="$cyan" -v yellow="$yellow" -v magenta="$magenta" \
+    -v eco_green="$eco_green" -v cyan="$cyan" -v yellow="$yellow" -v magenta="$magenta" \
     -v compressor_watts="$compressor_watts" -v element_watts="$element_watts" '
 function duration(seconds, minutes, hours) {
     minutes = int(seconds / 60); hours = int(minutes / 60); minutes %= 60
@@ -125,7 +126,7 @@ function row(end, active, label, runtime, mode_color, idle_cell, energy_cell) {
         runtime = sprintf("%-20s", label " (running)")
         sub(/\(running\)/, green "(running)" reset, runtime)
     }
-    mode_color = run_mode == "heat-pump" ? cyan : (run_mode == "element" ? yellow : (run_mode == "high-demand" ? magenta : (run_mode == "unknown" ? dim : "")))
+    mode_color = run_mode == "eco" ? eco_green : run_mode == "heat-pump" ? cyan : (run_mode == "element" ? yellow : (run_mode == "high-demand" ? magenta : (run_mode == "unknown" ? dim : "")))
     idle_cell = idle == "—" ? dim idle reset sprintf("%14s", "") : sprintf("%-15s", idle)
     cmd = "date -d @" start " '\''+%b %-d, %Y %I:%M %p'\''"
     cmd | getline started; close(cmd)
